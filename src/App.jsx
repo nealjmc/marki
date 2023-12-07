@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import reactLogo from './assets/react.svg'
 import { invoke } from '@tauri-apps/api/tauri'
 import { open } from '@tauri-apps/api/dialog'
-import { readDir, readTextFile} from '@tauri-apps/api/fs'
+import { readDir, readTextFile } from '@tauri-apps/api/fs'
 
 import './App.css'
 import * as MarkdownIt from 'markdown-it'
@@ -17,6 +17,12 @@ function App() {
 	const [listOfFiles, setListOfFiles] = useState([])
 	const [filesWithContent, setFilesWithContent] = useState([])
 	const [cards, setCards] = useState([])
+	const [selectedCard, setSelectedCard] = useState({
+		index: null,
+		content: '',
+	})
+	const [deckName, setDeckName] = useState('')
+	const [exportContent, setExportContent] = useState('')
 
 	// Read in files
 	useEffect(() => {
@@ -30,20 +36,32 @@ function App() {
 					}
 				}
 			})
+
+			// Set Deck name
+			setDeckName(selectedDir.split('\\').pop())
 		}
 	}, [selectedDir])
 
+	// Parses cards into Markdown
 	useEffect(() => {
 		let newCards = []
-		if(filesWithContent.length > 0){
-			filesWithContent.forEach((file)=>{
-				newCards.push([...ParseMarkdownToCards(file)])
+		if (filesWithContent.length > 0) {
+			filesWithContent.forEach((file) => {
+				newCards.push(...ParseMarkdownToCards(file))
 			})
 			setCards(newCards)
-			console.log(newCards)
+			setSelectedCard({ index: 0, content: newCards[0] })
 		}
-
 	}, [filesWithContent])
+
+	useEffect(() => {
+		if (selectedCard.index !== null) {
+			//TODO: Yeah this is probably injection, which no good
+			const container = (document.getElementById(
+				'preview-container'
+			).innerHTML = selectedCard.content)
+		}
+	}, [selectedCard])
 
 	/**
 	 * Turns Markdown into Anki friendly HTML.
@@ -63,10 +81,10 @@ function App() {
 
 		// Split on ---
 		let cardsInPage = text.toString().split('---')
-		console.log(cardTitle)
+	
 		// Add H1 to each card for context
 		cardsInPage = cardsInPage.map((cardText, index) => {
-			if(index === 0){
+			if (index === 0) {
 				return cardText
 			}
 			return cardTitle + '\n' + cardText
@@ -86,9 +104,6 @@ function App() {
 				.replace(/<h.>/gm, '<div style="text-align: left;"><strong>')
 				.replace(/<\/h.>/gm, '</strong></div>')
 			htmlCards.push(htmlPage)
-		})
-		htmlCards.forEach((card) => {
-			console.log(card)
 		})
 
 		return htmlCards
@@ -115,12 +130,16 @@ function App() {
 		}
 	}
 
-	function ReadFiles(){
-		let filesWithContent = listOfFiles.map(filepath=>{
-			let fileName = filepath.split('\\')[filepath.split('\\').length-1].split('.')[0]
-			return readTextFile(filepath).then(text =>{return `# ${fileName}\n${text}`})
+	function ReadFiles() {
+		let filesWithContent = listOfFiles.map((filepath) => {
+			let fileName = filepath
+				.split('\\')
+				[filepath.split('\\').length - 1].split('.')[0]
+			return readTextFile(filepath).then((text) => {
+				return `# ${fileName}\n${text}`
+			})
 		})
-		Promise.all(filesWithContent).then((values)=>{
+		Promise.all(filesWithContent).then((values) => {
 			setFilesWithContent(values)
 		})
 	}
@@ -139,26 +158,64 @@ function App() {
 				<Grid item xs={6} md={8}>
 					<Item>
 						<div className='container'>
-							<h1>Welcome to Tauri!</h1>
-							<textarea id='markdown-input'></textarea>
-							<Button
-								type='submit'
-								disabled = {selectedDir === ''}
-								onClick={() => {
-									// ParseMarkdownToCards(
-									// 	document.getElementById(
-									// 		'markdown-input'
-									// 	).value
-									// )
-									ReadFiles()
-								}}
-							>
-								Parse
-							</Button>
-							{/* <Grid container spacing={2}>
-								<Grid item xs={4} md={6}><Button>Previous</Button></Grid>
-								<Grid item xs={4} md={6}><Button variant='contained'>Next</Button></Grid>
-							</Grid> */}
+							<div
+								id='preview-container'
+								style={{ textAlign: 'left' }}
+							></div>
+
+							<Grid container spacing={2}>
+								<Grid item xs={4} md={6}>
+									<Button
+										disabled={
+											selectedCard.index == 0 ||
+											cards.length === 0
+										}
+										onClick={() => {
+											if (selectedCard.index >= 1) {
+												setSelectedCard({
+													index:
+														selectedCard.index - 1,
+													content:
+														cards[
+															selectedCard.index -
+																1
+														],
+												})
+											}
+										}}
+									>
+										Previous
+									</Button>
+								</Grid>
+								<Grid item xs={4} md={6}>
+									<Button
+										variant='contained'
+										disabled={
+											selectedCard.index ==
+												cards.length - 1 ||
+											cards.length === 0
+										}
+										onClick={() => {
+											if (
+												selectedCard.index <
+												cards.length - 1
+											) {
+												setSelectedCard({
+													index:
+														selectedCard.index + 1,
+													content:
+														cards[
+															selectedCard.index +
+																1
+														],
+												})
+											}
+										}}
+									>
+										Next
+									</Button>
+								</Grid>
+							</Grid>
 						</div>
 					</Item>
 				</Grid>
@@ -185,7 +242,34 @@ function App() {
 							id='deck-name'
 							label='Deck Name'
 							variant='outlined'
+
 						/>
+						<Button
+							type='submit'
+							disabled={selectedDir === ''}
+							onClick={() => {
+								ReadFiles()
+							}}
+						>
+							Preview
+						</Button>
+						<Button
+							type='submit'
+							disabled={selectedCard.index === null}
+							onClick={() => {
+								let newCardContent = '#separator:tab'
+									+ "\n#html:true"
+									+ "\n#notetype column:1"
+									+ "\n#deck column:2"
+									+ "\n#tags column:5`"
+								cards.forEach((card) => {
+									newCardContent += `\nCloze\t${deckName}\t"${card}"\t`
+								})
+								console.log(newCardContent)
+							}}
+						>
+							Export
+						</Button>
 					</Item>
 				</Grid>
 			</Grid>
